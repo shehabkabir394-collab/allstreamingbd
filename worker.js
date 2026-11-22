@@ -1,79 +1,17 @@
-/**
- * AllStreamingBD Cloudflare Worker
- * Enables catalog/metadata APIs only. It does not extract, proxy, or serve third-party video streams.
- */
-const UPSTREAM = "https://h5-api.aoneroom.com";
-const SPORTS_UPSTREAM = "https://h5-sport-api.aoneroom.com";
-const ALLOWED = new Set([
-  "/wefeed-h5api-bff/home",
-  "/wefeed-h5api-bff/subject/trending",
-  "/wefeed-h5api-bff/subject/search",
-  "/wefeed-h5api-bff/subject/search-suggest",
-  "/wefeed-h5api-bff/subject/everyone-search",
-  "/wefeed-h5api-bff/subject/filter",
-  "/wefeed-h5api-bff/filter",
-  "/wefeed-h5api-bff/ranking-list/content",
-  "/wefeed-h5api-bff/platform/play-list",
-  "/wefeed-h5api-bff/detail",
-  "/wefeed-h5api-bff/subject/detail-rec",
-  "/wefeed-h5api-bff/post/list/subject",
-  "/wefeed-h5api-bff/staff/subject-list",
-  "/wefeed-h5api-bff/staff/staff-related",
-  "/wefeed-h5api-bff/upcoming-subject-list",
-  "/wefeed-h5api-bff/tab/get-bottom-tab-list"
-]);
-const SPORTS_ALLOWED = new Set([
-  "/wefeed-h5api-bff/live/match-list-v5",
-  "/wefeed-h5api-bff/live/league-tab"
-]);
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Content-Type": "application/json; charset=utf-8"
-};
-function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:cors})}
-export default {
- async fetch(request,env){
-  const url=new URL(request.url);
-  if(url.pathname==="/api/health") return json({ok:true,service:"AllStreamingBD API",catalog:"enabled",sportsMetadata:"enabled",thirdPartyPlayback:"disabled"});
-  if(!url.pathname.startsWith("/api/")){
-   return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Static assets binding is not configured",{status:500});
-  }
-  if(request.method==="OPTIONS") return new Response(null,{headers:cors});
-  if(!["GET","POST"].includes(request.method)) return json({ok:false,error:"Method not allowed"},405);
-
-  const route=url.pathname.slice(4);
-  let upstreamBase=UPSTREAM;
-  let upstreamPath=route;
-  if(route.startsWith("/sports/")){
-   upstreamPath=route.slice("/sports".length);
-   if(!SPORTS_ALLOWED.has(upstreamPath)) return json({ok:false,error:"Sports metadata endpoint is not enabled"},404);
-   upstreamBase=SPORTS_UPSTREAM;
-  } else if(!ALLOWED.has(upstreamPath)){
-   return json({ok:false,error:"Endpoint is not enabled. Third-party video playback, caption extraction, and media proxying are not provided."},404);
-  }
-
-  const upstreamUrl=new URL(upstreamBase+upstreamPath);
-  for(const [k,v] of url.searchParams) upstreamUrl.searchParams.set(k,v);
-  const headers={
-   "Accept":"application/json","Content-Type":"application/json",
-   "Referer":"https://moviebox01.com/",
-   "X-Client-Info":JSON.stringify({timezone:"Asia/Dhaka"}),
-   "X-Vip-Restrict":"0","X-No-High-Risk-Restrict":"1","X-Request-Lang":"en",
-   "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
-  };
-  try{
-   const init={method:request.method,headers};
-   if(request.method==="POST"){
-    const body=await request.text();
-    if(body.length>12000) return json({ok:false,error:"Request body too large"},413);
-    init.body=body;
-   }
-   const upstream=await fetch(upstreamUrl.toString(),init);
-   const type=upstream.headers.get("content-type")||"";
-   if(!type.includes("application/json")) return json({ok:false,error:"Catalog provider returned a non-JSON response",upstreamStatus:upstream.status},502);
-   return new Response(await upstream.text(),{status:upstream.status,headers:{...cors,"Cache-Control":"public, max-age=60"}});
-  }catch(e){return json({ok:false,error:"Catalog provider request failed"},502)}
- }
-};
+/** AllStreamingBD — secure CinePulse metadata gateway. Set CINEPULSE_API_KEY as Worker Secret. */
+const BASE="https://okay-891h.onrender.com";
+const ALLOWED=new Set(["/api/v1/home","/api/v1/reels","/api/v1/categories","/api/v1/catalog","/api/v1/search","/api/v1/suggest","/api/v1/updates-24h","/api/v1/details","/api/v1/related","/api/v1/comments","/api/v1/staff","/api/v1/trending","/api/v1/ranking","/api/v1/hot-search","/api/v1/filter","/api/v1/filter-options","/api/v1/platform","/api/v1/upcoming","/api/v1/sports/matches","/api/v1/sports/leagues","/api/v1/bottom-tabs","/api/v1/app-info","/api/v1/status"]);
+const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,OPTIONS","Access-Control-Allow-Headers":"Content-Type","Content-Type":"application/json; charset=utf-8"};
+const json=(d,s=200)=>new Response(JSON.stringify(d),{status:s,headers:cors});
+export default {async fetch(request,env){const u=new URL(request.url);
+if(u.pathname==="/api/health")return json({ok:true,service:"AllStreamingBD",provider:"CinePulse",metadata:true,sources:["moviebox","movielinkbd","all"],apiKeyConfigured:!!env.CINEPULSE_API_KEY,playback:"authorized-media-only"});
+if(!u.pathname.startsWith("/api/"))return env.ASSETS?env.ASSETS.fetch(request):new Response("Assets binding missing",{status:500});
+if(request.method==="OPTIONS")return new Response(null,{headers:cors});
+if(request.method!=="GET")return json({ok:false,error:"Only GET is allowed"},405);
+if(!env.CINEPULSE_API_KEY)return json({ok:false,error:"CINEPULSE_API_KEY Worker Secret is not configured"},503);
+const path=u.pathname.replace(/^\/api\/cinepulse/,"/api");
+if(!ALLOWED.has(path))return json({ok:false,error:"Endpoint not enabled; third-party stream/caption extraction is unavailable"},404);
+const target=new URL(BASE+path);for(const [k,v] of u.searchParams)target.searchParams.set(k,v);
+if(!target.searchParams.has("source")&&["/api/v1/home","/api/v1/reels","/api/v1/catalog","/api/v1/search","/api/v1/suggest","/api/v1/updates-24h","/api/v1/trending","/api/v1/ranking","/api/v1/filter"].includes(path))target.searchParams.set("source","all");
+try{const r=await fetch(target,{headers:{Accept:"application/json","x-api-key":env.CINEPULSE_API_KEY,"User-Agent":"AllStreamingBD/1.0"}});const body=await r.text();if(!(r.headers.get("content-type")||"").includes("json"))return json({ok:false,error:"Provider returned non-JSON",upstreamStatus:r.status},502);return new Response(body,{status:r.status,headers:{...cors,"Cache-Control":"public, max-age=45"}})}catch(e){return json({ok:false,error:"CinePulse request failed"},502)}
+}};
