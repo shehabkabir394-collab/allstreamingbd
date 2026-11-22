@@ -1,8 +1,9 @@
 /**
  * AllStreamingBD Cloudflare Worker
- * Catalog-only adapter. Playback/media extraction is intentionally not proxied.
+ * Enables catalog/metadata APIs only. It does not extract, proxy, or serve third-party video streams.
  */
 const UPSTREAM = "https://h5-api.aoneroom.com";
+const SPORTS_UPSTREAM = "https://h5-sport-api.aoneroom.com";
 const ALLOWED = new Set([
   "/wefeed-h5api-bff/home",
   "/wefeed-h5api-bff/subject/trending",
@@ -11,9 +12,19 @@ const ALLOWED = new Set([
   "/wefeed-h5api-bff/subject/everyone-search",
   "/wefeed-h5api-bff/subject/filter",
   "/wefeed-h5api-bff/filter",
+  "/wefeed-h5api-bff/ranking-list/content",
+  "/wefeed-h5api-bff/platform/play-list",
+  "/wefeed-h5api-bff/detail",
   "/wefeed-h5api-bff/subject/detail-rec",
+  "/wefeed-h5api-bff/post/list/subject",
+  "/wefeed-h5api-bff/staff/subject-list",
+  "/wefeed-h5api-bff/staff/staff-related",
   "/wefeed-h5api-bff/upcoming-subject-list",
   "/wefeed-h5api-bff/tab/get-bottom-tab-list"
+]);
+const SPORTS_ALLOWED = new Set([
+  "/wefeed-h5api-bff/live/match-list-v5",
+  "/wefeed-h5api-bff/live/league-tab"
 ]);
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -25,15 +36,25 @@ function json(data,status=200){return new Response(JSON.stringify(data),{status,
 export default {
  async fetch(request,env){
   const url=new URL(request.url);
-  if(url.pathname==="/api/health") return json({ok:true,service:"AllStreamingBD catalog API",mode:"catalog-only"});
+  if(url.pathname==="/api/health") return json({ok:true,service:"AllStreamingBD API",catalog:"enabled",sportsMetadata:"enabled",thirdPartyPlayback:"disabled"});
   if(!url.pathname.startsWith("/api/")){
    return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Static assets binding is not configured",{status:500});
   }
   if(request.method==="OPTIONS") return new Response(null,{headers:cors});
-  const path=url.pathname.slice(4);
-  if(!ALLOWED.has(path)) return json({ok:false,error:"Endpoint is not enabled. Media playback endpoints are not proxied."},404);
   if(!["GET","POST"].includes(request.method)) return json({ok:false,error:"Method not allowed"},405);
-  const upstreamUrl=new URL(UPSTREAM+path);
+
+  const route=url.pathname.slice(4);
+  let upstreamBase=UPSTREAM;
+  let upstreamPath=route;
+  if(route.startsWith("/sports/")){
+   upstreamPath=route.slice("/sports".length);
+   if(!SPORTS_ALLOWED.has(upstreamPath)) return json({ok:false,error:"Sports metadata endpoint is not enabled"},404);
+   upstreamBase=SPORTS_UPSTREAM;
+  } else if(!ALLOWED.has(upstreamPath)){
+   return json({ok:false,error:"Endpoint is not enabled. Third-party video playback, caption extraction, and media proxying are not provided."},404);
+  }
+
+  const upstreamUrl=new URL(upstreamBase+upstreamPath);
   for(const [k,v] of url.searchParams) upstreamUrl.searchParams.set(k,v);
   const headers={
    "Accept":"application/json","Content-Type":"application/json",
