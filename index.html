@@ -64,5 +64,5 @@ $('searchBtn').onclick=()=>{const q=$('search').value.trim();q?search(q):home()}
 document.addEventListener('click',async e=>{const el=e.target.closest('.movie[data-cp-id]');if(!el)return;const x=state.items.find(v=>v.id===el.dataset.cpId);if(!x)return;$('modalTitle').textContent=x.title;$('modalText').textContent='Loading details…';$('modal').classList.add('show');try{const d=await api('/details',{title:x.title});const o=d?.data??d;$('modalText').textContent=(pick(o,['description','overview','plot','synopsis','intro'])||'Details loaded.')+' · '+x.year+' · '+x.type+'. Playback is for authorized media only.'}catch(err){$('modalText').textContent='Details unavailable: '+err.message}});
 document.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',async()=>{document.querySelectorAll('.chip').forEach(v=>v.classList.remove('active'));b.classList.add('active');const f=b.dataset.filter;if(f==='All'){home();return}try{if(['Movie','Drama','Anime'].includes(f))paint(await api('/catalog',{category:f.toLowerCase(),page:1,source:'all'}),f);else paint(await api('/filter',{source:'all',cat:f==='Korean'?'dramas':'movies',lang:f==='Hindi Dubbed'?'hi':undefined}),f)}catch(e){$('status').textContent=f+': '+e.message}}));home();})();
 </script>
-<script src="/player.js"></script>
+<script src="/player.js"></script><script src="/app.js"></script>
 </body></html>
