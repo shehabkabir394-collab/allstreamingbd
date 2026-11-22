@@ -1,0 +1,49 @@
+/* AllStreamingBD: complete CinePulse endpoint UI. API key remains server-side in Worker Secret. */
+(()=> {
+const API="/api/cinepulse/v1", $=id=>document.getElementById(id);
+const endpoints=[
+["Home","/home",{}],["Reels","/reels",{type:"all",page:1}],["Categories","/categories",{}],["24h Updates","/updates-24h",{}],["Trending","/trending",{}],["Ranking","/ranking",{list:"top",source:"all"}],["Hot Search","/hot-search",{}],["Filter Options","/filter-options",{}],["Upcoming","/upcoming",{}],["Sports Matches","/sports/matches",{}],["Sports Leagues","/sports/leagues",{}],["Bottom Tabs","/bottom-tabs",{}],["App Info","/app-info",{}],["API Status","/status",{}]
+];
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const first=(o,keys)=>{for(const k of keys){const v=o?.[k];if(v!==undefined&&v!==null&&v!=="")return v}return""};
+const list=d=>{if(Array.isArray(d))return d;for(const k of ["results","items","list","subjects","movies","series","records","data","reels","matches","categories","trending","catalog"])if(Array.isArray(d?.[k]))return d[k];if(d?.data&&typeof d.data==="object")return list(d.data);if(d?.result&&typeof d.result==="object")return list(d.result);return[]};
+async function api(path,params={}){const q=new URLSearchParams();for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=="")q.set(k,v);const r=await fetch(API+path+(q.size?"?"+q:""));let d;try{d=await r.json()}catch{throw Error("Provider did not return JSON")}if(!r.ok||d?.ok===false)throw Error(d?.error||("HTTP "+r.status));return d}
+function normalized(o){return{id:String(first(o,["subjectId","id","movieId","contentId","slug"])),title:String(first(o,["title","name","subjectName","originalTitle"])||"Untitled"),year:String(first(o,["year","releaseYear","releaseDate"])),type:String(first(o,["type","category","contentType","mediaType"])),rating:String(first(o,["rating","score","imdbRating"])),poster:String(first(o,["poster","posterUrl","cover","coverUrl","image","thumbnail"])),raw:o}}
+let current=[],currentTitle="";
+function cards(items){current=items.map(normalized);return current.map((x,i)=>'<article class="movie" tabindex="0" data-asb-index="'+i+'"><div class="poster">'+(x.poster?'<img loading="lazy" src="'+esc(/^https?:/i.test(x.poster)?x.poster:"https://"+x.poster.replace(/^\/+/,''))+'" alt="" onerror="this.style.display=\'none\'">':'')+'<span class="tag">'+esc(x.type||"CINEPULSE")+'</span><span class="rating">'+(x.rating?"★ "+esc(x.rating):"")+'</span></div><h3>'+esc(x.title)+'</h3><small>'+esc(x.year)+' · '+esc(x.type||"Title")+'</small></article>').join("")||'<div class="empty">No results from this endpoint.</div>'}
+function paint(items,label){const html=cards(items);["trendingCards","movieCards","dramaCards","animeCards","southCards"].forEach(id=>{const el=$(id);if(el)el.innerHTML=html});$("status").textContent=label+" · "+items.length+" items"}
+async function loadHome(){try{let d=await api("/home",{source:"all",lang:"hi"});let a=list(d);if(!a.length){d=await api("/trending",{source:"all"});a=list(d)}paint(a,"CinePulse Home · Hindi-first")}catch(e){$("status").textContent="API error: "+e.message}}
+function injectTools(){
+const content=document.querySelector(".content");if(!content)return;
+const section=document.createElement("section");section.className="section";section.id="apiTools";
+section.innerHTML='<div class="section-head"><div><h2>All API <span>Services</span></h2><div class="sub">Every CinePulse endpoint available from one control panel</div></div></div><div class="chips" id="apiButtons"></div><div class="glass" style="padding:16px;border-radius:16px;margin-top:12px"><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="asb-api-query" class="search" placeholder="Title / query / subject ID" style="width:min(320px,100%)"><input id="asb-api-extra" class="search" placeholder="Extra ID / streamId (optional)" style="width:min(240px,100%)"><button class="btn primary" id="asb-api-run">Run selected API</button></div><pre id="asb-api-output" style="white-space:pre-wrap;overflow-wrap:anywhere;color:#d6d6df;font-size:12px;max-height:300px;overflow:auto;margin:14px 0 0">Choose an endpoint above.</pre></div>';
+content.append(section);
+const buttons=$("apiButtons");endpoints.forEach((e,i)=>{const b=document.createElement("button");b.className="chip"+(!i?" active":"");b.textContent=e[0];b.dataset.index=i;b.onclick=()=>{buttons.querySelectorAll("button").forEach(x=>x.classList.remove("active"));b.classList.add("active")};buttons.append(b)});
+$("asb-api-run").onclick=async()=>{const i=Number(buttons.querySelector(".active")?.dataset.index||0),e=endpoints[i],q=$("asb-api-query").value.trim();try{let params={...e[2]};if(q){if(e[1]==="/search"||e[1]==="/suggest")params.q=q;else if(e[1]==="/details")params.title=q;else if(e[1]==="/staff")params.staffId=q;else if(e[1]==="/platform")params.platform=q;else if(e[1]==="/filter")params.genre=q;else params.title=q}const d=await api(e[1],params);$("asb-api-output").textContent=JSON.stringify(d,null,2)}catch(err){$("asb-api-output").textContent="ERROR: "+err.message}};
+}
+async function openDetails(item){
+const x=normalized(item);currentTitle=x.title;$("modalTitle").textContent=x.title;$("modalText").innerHTML="Loading full details…";$("modal").classList.add("show");
+try{const d=await api("/details",{title:x.title});const data=d?.data??d;const desc=first(data,["description","overview","plot","synopsis","intro"]);$("modalText").innerHTML='<div>'+esc(desc||"Details loaded from CinePulse.")+'</div><div style="margin-top:12px;color:#aaa;font-size:12px">'+esc(x.year)+" · "+esc(x.type)+'</div><div class="actions"><button class="btn primary" id="asb-play">▶ Play / Episodes</button><button class="btn" id="asb-related">Related titles</button><button class="btn" id="asb-comments">Comments</button></div><div id="asb-detail-extra" style="margin-top:12px"></div>';
+$("asb-play").onclick=()=>playTitle(x,data);$("asb-related").onclick=async()=>showExtra("/related",{subjectId:first(data,["subjectId","id"])||x.id});$("asb-comments").onclick=async()=>showExtra("/comments",{subjectId:first(data,["subjectId","id"])||x.id});
+}catch(e){$("modalText").textContent="Details API error: "+e.message}
+}
+async function showExtra(path,params){const el=$("asb-detail-extra");el.textContent="Loading…";try{el.textContent=JSON.stringify(await api(path,params),null,2)}catch(e){el.textContent=e.message}}
+function deepFind(o,keys,depth=0){if(!o||typeof o!=="object"||depth>7)return null;for(const k of keys)if(o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];for(const v of Object.values(o)){const z=deepFind(v,keys,depth+1);if(z!==null)return z}return null}
+function extractUrl(o){return deepFind(o,["url","playUrl","streamUrl","videoUrl","src","m3u8","mp4","file","link"])}
+async function playTitle(x,detail){
+try{
+let stream=await api("/stream",{title:x.title,se:1,ep:1});
+let url=extractUrl(stream);
+if(!url){$("asb-detail-extra").textContent="Stream endpoint response (no direct media URL field recognized): "+JSON.stringify(stream,null,2);return}
+const subjectId=deepFind(detail,["subjectId","subject_id","id"])||x.id;
+const streamId=deepFind(stream,["streamId","stream_id","id"]);
+let captions=[];try{const c=await api("/captions",{subjectId,streamId});const a=list(c);captions=a.map(v=>({label:first(v,["label","language","lang","name"])||"Subtitle",url:extractUrl(v)})).filter(v=>v.url)}catch{}
+if(window.ASBPlayer)window.ASBPlayer.open({title:x.title,url,type:/m3u8/i.test(url)?"hls":"mp4",captions});
+}catch(e){$("asb-detail-extra").textContent="Stream API error: "+e.message}
+}
+document.addEventListener("click",e=>{const el=e.target.closest(".movie[data-asb-index]");if(el){const item=current[Number(el.dataset.asbIndex)];if(item)openDetails(item.raw)}});
+document.querySelectorAll(".chip[data-filter]").forEach(b=>b.addEventListener("click",async()=>{const f=b.dataset.filter;if(f==="All"){loadHome();return}try{let d;if(["Movie","Drama","Anime"].includes(f))d=await api("/catalog",{category:f.toLowerCase(),page:1,source:"all"});else d=await api("/filter",{source:"all",cat:f==="Korean"?"dramas":"movies",lang:f==="Hindi Dubbed"?"hi":undefined,genre:f==="South Indian"?"south indian":f==="Bangla"?"bangla":undefined});paint(list(d),f)}catch(err){$("status").textContent=f+" API: "+err.message}}));
+const search=async()=>{const q=$("search").value.trim();if(!q){loadHome();return}try{paint(list(await api("/search",{q,page:1,source:"all"})),"Search: "+q)}catch(e){$("status").textContent="Search API: "+e.message}};
+$("searchBtn").onclick=search;$("search").addEventListener("keydown",e=>{if(e.key==="Enter")search()});
+injectTools();loadHome();
+})();
