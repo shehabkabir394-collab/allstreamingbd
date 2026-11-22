@@ -1,7 +1,6 @@
 /**
  * AllStreamingBD Cloudflare Worker
  * Catalog-only adapter. Playback/media extraction is intentionally not proxied.
- * Configure and use only content APIs you are authorized to access.
  */
 const UPSTREAM = "https://h5-api.aoneroom.com";
 const ALLOWED = new Set([
@@ -24,23 +23,23 @@ const cors = {
 };
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:cors})}
 export default {
- async fetch(request){
+ async fetch(request,env){
   const url=new URL(request.url);
-  if(request.method==="OPTIONS") return new Response(null,{headers:cors});
   if(url.pathname==="/api/health") return json({ok:true,service:"AllStreamingBD catalog API",mode:"catalog-only"});
-  const path=url.pathname.replace(/^\/api/,"");
+  if(!url.pathname.startsWith("/api/")){
+   return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Static assets binding is not configured",{status:500});
+  }
+  if(request.method==="OPTIONS") return new Response(null,{headers:cors});
+  const path=url.pathname.slice(4);
   if(!ALLOWED.has(path)) return json({ok:false,error:"Endpoint is not enabled. Media playback endpoints are not proxied."},404);
   if(!["GET","POST"].includes(request.method)) return json({ok:false,error:"Method not allowed"},405);
-  let upstreamUrl=new URL(UPSTREAM+path);
+  const upstreamUrl=new URL(UPSTREAM+path);
   for(const [k,v] of url.searchParams) upstreamUrl.searchParams.set(k,v);
   const headers={
-   "Accept":"application/json",
-   "Content-Type":"application/json",
+   "Accept":"application/json","Content-Type":"application/json",
    "Referer":"https://moviebox01.com/",
    "X-Client-Info":JSON.stringify({timezone:"Asia/Dhaka"}),
-   "X-Vip-Restrict":"0",
-   "X-No-High-Risk-Restrict":"1",
-   "X-Request-Lang":"en",
+   "X-Vip-Restrict":"0","X-No-High-Risk-Restrict":"1","X-Request-Lang":"en",
    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
   };
   try{
@@ -53,8 +52,7 @@ export default {
    const upstream=await fetch(upstreamUrl.toString(),init);
    const type=upstream.headers.get("content-type")||"";
    if(!type.includes("application/json")) return json({ok:false,error:"Catalog provider returned a non-JSON response",upstreamStatus:upstream.status},502);
-   const body=await upstream.text();
-   return new Response(body,{status:upstream.status,headers:{...cors,"Cache-Control":"public, max-age=60"}});
+   return new Response(await upstream.text(),{status:upstream.status,headers:{...cors,"Cache-Control":"public, max-age=60"}});
   }catch(e){return json({ok:false,error:"Catalog provider request failed"},502)}
  }
 };
