@@ -24,6 +24,8 @@
  <div class="row"><button id="asb-load">Load video</button><button id="asb-loadsub">Load subtitle</button></div>
  <p class="hint">Use only video and subtitle URLs you own or are licensed to stream/download. Cross-origin downloads depend on the media host's CORS and download policy.</p></div>`;
  document.body.append(root);
+ const launch=document.createElement('button');launch.textContent='▶ Authorized Player';launch.type='button';launch.style.cssText='position:fixed;right:18px;bottom:18px;z-index:40;background:linear-gradient(120deg,#ff3156,#a9002e);color:white;border:1px solid #ffffff30;border-radius:14px;padding:12px 16px;font-weight:800;box-shadow:0 8px 30px #ff294b55;cursor:pointer';
+ launch.onclick=()=>window.ASBPlayer.open({title:'Play your licensed video'});document.body.append(launch);
  const $=id=>document.getElementById(id), video=$('asb-video');
  let state={title:'',seasons:[],current:null,hls:null};
  function stop(){if(state.hls){state.hls.destroy();state.hls=null}video.pause();video.removeAttribute('src');video.load();video.querySelectorAll('track').forEach(t=>t.remove())}
