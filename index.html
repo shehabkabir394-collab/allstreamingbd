@@ -47,4 +47,48 @@ document.addEventListener('click',e=>{const c=e.target.closest('.movie');if(c){c
 document.querySelector('#close').onclick=()=>document.querySelector('#modal').classList.remove('show');document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('show')};
 const search=()=>{const q=document.querySelector('#search').value.trim().toLowerCase();document.querySelectorAll('.movie').forEach(el=>el.style.display=!q||el.dataset.title.includes(q)?'':'none');if(q)document.querySelector('#trending').scrollIntoView({behavior:'smooth'})};document.querySelector('#searchBtn').onclick=search;document.querySelector('#search').addEventListener('keydown',e=>{if(e.key==='Enter')search()});
 document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');const f=b.dataset.filter;document.querySelectorAll('.movie').forEach(el=>{const x=samples.find(s=>s.t.toLowerCase()===el.dataset.title);el.style.display=f==='All'||x.g===f||(f==='Hindi Dubbed'&&x.tag.includes('HINDI'))||(f==='South Asia'&&(x.tag.includes('SOUTH')||x.tag.includes('HINDI'))||(f==='Korean'&&x.tag==='K-DRAMA')||(f==='South Indian'&&x.tag==='SOUTH HIT')||(f==='Bangla'&&x.t==='')?'':'none'})});
-</script></body></html>
+</script>
+<script>
+/* Live catalog integration: public metadata only. */
+(()=>{
+ const API='/api', liveById=new Map(); let liveItems=[];
+ const pick=(o,keys)=>{for(const k of keys){const v=o?.[k];if(v!==undefined&&v!==null&&v!=='')return v}return ''};
+ const listFrom=(d)=>{if(Array.isArray(d))return d;for(const k of ['subjectList','items','list','results','dataList'])if(Array.isArray(d?.[k]))return d[k];if(Array.isArray(d?.data))return d.data;for(const k of ['data','result'])if(d?.[k]){const a=listFrom(d[k]);if(a.length)return a}return []};
+ const normalize=o=>({
+  id:String(pick(o,['subjectId','id','subject_id'])||''),
+  title:String(pick(o,['title','name','subjectName','nameEn'])||'Untitled'),
+  year:String(pick(o,['year','releaseYear','releaseDate'])||''),
+  type:String(pick(o,['subjectTypeName','typeName','category','genreName'])|| (Number(o.subjectType)===6?'Anime':Number(o.subjectType)===1?'Movie':'Drama')),
+  rating:String(pick(o,['imdbRating','score','rating','averageScore'])||''),
+  poster:String(pick(o,['cover','coverUrl','poster','posterUrl','image','verticalCover','thumbnail'])||''),
+  detailPath:String(pick(o,['detailPath','path','slug'])||'')
+ });
+ const posterUrl=x=>/^https?:\/\//i.test(x.poster)?x.poster:(x.poster?('https://pbcdnw.aoneroom.com/'+String(x.poster).replace(/^\//,'')):'');
+ const cardLive=x=>'<article class="movie" tabindex="0" data-live-id="'+x.id.replace(/"/g,'&quot;')+'"><div class="poster">'+(posterUrl(x)?'<img loading="lazy" src="'+posterUrl(x).replace(/"/g,'&quot;')+'" alt="" onerror="this.style.display=\'none\'">':'')+'<span class="tag">LIVE CATALOG</span><span class="rating">'+(x.rating?'★ '+x.rating:'')+'</span></div><h3>'+x.title.replace(/</g,'&lt;')+'</h3><small>'+x.year+' · '+x.type+'</small></article>';
+ async function get(path,opts){const res=await fetch(API+path,opts||{});if(!res.ok)throw Error('API HTTP '+res.status);return res.json()}
+ function paint(items){liveItems=items.map(normalize).filter(x=>x.title&&x.id);liveItems.forEach(x=>liveById.set(x.id,x));const cards=liveItems.map(cardLive).join('');['trendingCards','movieCards','dramaCards','animeCards','southCards'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=cards||'<div class="empty">No catalog titles returned.</div>'});}
+ async function trending(){const s=document.getElementById('status');try{const d=await get('/wefeed-h5api-bff/subject/trending?page=1&perPage=30');const arr=listFrom(d?.data??d);if(!arr.length)throw Error('No titles in provider response');paint(arr);s.textContent='Live catalog connected · '+liveItems.length+' titles loaded.'}catch(e){s.textContent='Live catalog unavailable: '+e.message+' · Preview remains available.'}}
+ async function searchLive(q){const s=document.getElementById('status');try{const d=await get('/wefeed-h5api-bff/subject/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:q,page:1,perPage:30,subjectType:0})});const arr=listFrom(d?.data??d);paint(arr);s.textContent='Search results · '+liveItems.length+' titles.'}catch(e){s.textContent='Search API error: '+e.message}}
+ const oldSearch=document.getElementById('searchBtn').onclick;
+ document.getElementById('searchBtn').onclick=()=>{const q=document.getElementById('search').value.trim();if(q)searchLive(q);else trending()};
+ document.getElementById('search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const q=e.currentTarget.value.trim();if(q)searchLive(q)}});
+ document.addEventListener('click',async e=>{
+  const el=e.target.closest('.movie[data-live-id]');if(!el)return;
+  const x=liveById.get(el.dataset.liveId);if(!x)return;
+  document.getElementById('modalTitle').textContent=x.title;
+  const box=document.getElementById('modalText');box.textContent='Loading title details…';
+  document.getElementById('modal').classList.add('show');
+  try{
+   const qs=new URLSearchParams();if(x.detailPath)qs.set('detailPath',x.detailPath);qs.set('subjectId',x.id);
+   const d=await get('/wefeed-h5api-bff/detail?'+qs.toString());
+   const root=d?.data??d, sub=root.subject??root;
+   const desc=pick(sub,['description','intro','plot','content'])||'No synopsis provided by the catalog.';
+   const seasons=Array.isArray(root.resource?.seasons)?' · '+root.resource.seasons.length+' season(s)':'';
+   box.textContent=desc+seasons+' · '+x.year+' · '+x.type+'. Playback/download will appear only for authorized media sources.';
+  }catch(err){box.textContent='Could not load details: '+err.message}
+ });
+ document.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>{const f=b.dataset.filter;if(f==='All')trending();else{const map={'Movie':1,'Drama':2,'Anime':6};const channelId=map[f];if(channelId) get('/wefeed-h5api-bff/subject/filter',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:1,perPage:30,channelId,genre:[],country:[],year:[],sort:'Hottest'})}).then(d=>paint(listFrom(d?.data??d))).catch(()=>{});else{const filtered=liveItems.filter(x=>(f==='Hindi Dubbed'||f==='South Asia'||f==='South Indian'||f==='Bangla'||f==='Korean'));paint(filtered)}}}));
+ trending();
+})();
+</script>
+</body></html>
